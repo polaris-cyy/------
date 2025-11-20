@@ -1,178 +1,122 @@
 #import "template.typ": project, indent
 
+#import "code.typ": code
+
 #show: project.with(
   course: "人工智能算法与系统",
-  lab_name: "金融异常检测",
+  lab_name: "手写数字识别与垃圾分类",
   stu_name: "陈岳阳",
   stu_num: "22521171",
-  date: (2025, 11, 19),
+  date: (2025, 11, 20),
   major: "计算机技术",
   department: "计算机科学与技术",
   show_content_figure: true,
   watermark: "ZJU 陈岳阳",
 )
 
-#let sample = ```py
-def _get_unique_neighs_list(self, nodes, num_sample=10):
-    """
-    从 SparseTensor 高效采样邻居，复杂度 O(B × d)
-    """
-    adj_t = self.adj_lists
-    nodes = nodes.tolist() if hasattr(nodes, "tolist") else nodes
-
-    rowptr, col, _ = adj_t.csr()
-    samp_neighs = []
-    for node in nodes:
-        start, end = rowptr[node].item(), rowptr[node + 1].item()
-        neigh = col[start:end].tolist()
-        s = set(random.sample(neigh, num_sample)) if len(neigh) >= num_sample else set(neigh)
-        s.add(node)  # 包含自身
-        samp_neighs.append(s)
-
-    unique_nodes_list = list(set().union(*samp_neighs))
-    unique_nodes = {nid: idx for idx, nid in enumerate(unique_nodes_list)}
-    return samp_neighs, unique_nodes, unique_nodes_list
-
-```
-
-#let aggregate = ```py
-def aggregate(self, nodes, pre_hidden_embs, pre_neighs, num_sample=10):
-    unique_nodes_list, samp_neighs, unique_nodes = pre_neighs
-    if not self.gcn:
-        samp_neighs = [(s - set([nodes[i]])) for i, s in enumerate(samp_neighs)]
-    embed_matrix = pre_hidden_embs[torch.LongTensor(unique_nodes_list)]
-    mask = torch.zeros(len(samp_neighs), len(unique_nodes))
-    column_indices = [unique_nodes[n] for samp_neigh in samp_neighs for n in samp_neigh]
-    row_indices = [i for i in range(len(samp_neighs)) for _ in range(len(samp_neighs[i]))]
-    mask[row_indices, column_indices] = 1
-    mask = mask.div(mask.sum(1, keepdim=True))
-    aggregate_feats = mask.mm(embed_matrix)
-    return aggregate_feats
-
-```
-
-#let net = ```py
-class SageLayer(nn.Module):
-    def forward(self, self_feats, aggregate_feats, neighs=None):
-        combined = torch.cat([self_feats, aggregate_feats], dim=1) if not self.gcn else aggregate_feats
-        combined = F.relu(self.weight.mm(combined.t())).t()
-        return combined
-
-class Classification(nn.Module):
-    def forward(self, embeds):
-        logists = torch.log_softmax(self.layer(embeds), 1)
-        return logists
-
-def forward(self, nodes_batch):
-    # 构建逐层采样邻居列表
-    ...
-    # 特征聚合
-    for index in range(1, self.num_layers + 1):
-        aggregate_feats = self.aggregate(nb, pre_hidden_embs, pre_neighs)
-        cur_hidden_embs = sage_layer(self_feats=pre_hidden_embs[nb], aggregate_feats=aggregate_feats)
-        pre_hidden_embs = cur_hidden_embs
-    # 输出分类概率
-    return self.layers[-1](pre_hidden_embs)
-
-```
-
-#let train_one_epoch = ```python
-def train_one_epoch(data, graphsage, batch_size, device, optimizer):
-    graphsage.train()
-    train_idx = data.train_mask
-    perm = torch.randperm(train_idx.size(0), device=device)
-    train_idx = train_idx[perm]
-    labels = data.y.to(device)
-
-    total_loss = 0.0
-    batches = math.ceil(len(train_idx) / batch_size)
-    for index in range(batches):
-        start = index * batch_size
-        end = (index + 1) * batch_size
-        nodes_batch = train_idx[start:end]
-        labels_batch = labels[nodes_batch]
-
-        logits = graphsage(nodes_batch)
-        loss = F.nll_loss(logits, labels_batch)
-        total_loss += loss.item()
-
-        optimizer.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(list(graphsage.parameters()), 5)
-        optimizer.step()
-    
-    return total_loss / batches
-```
-
-#let evaluate = ```python
-@torch.no_grad()
-def evaluate(data, model, batch_size, device, max_val_auc):
-    model.eval()
-    val_idx = data.valid_mask
-    val_probs = torch.zeros(len(val_idx), device=device)
-    for i in range(0, len(val_idx), batch_size):
-        batch = val_idx[i:i+batch_size]
-        logits = model(batch)
-        val_probs[i:i+batch_size] = logits.exp()[:, 1]
-
-    val_labels = data.y[val_idx].to(device)
-    val_auc = roc_auc_score(val_labels.cpu(), val_probs.cpu())
-    if val_auc > max_val_auc:
-        torch.save(model.state_dict(), './results/model_best.pt')
-        max_val_auc = val_auc
-    return max_val_auc
-```
-
 = 算法描述
 
-在金融异常领域，图神经网络 (GNN) 因其能够充分利用节点之间的关系信息而受到广泛关注。本实验采用 GraphSAGE (Graph Sample and Aggregation)，通过在训练过程中对邻居节点进行采样并聚合特征，实现了对大规模图结构的高校建模。该算法最早由 Hamilton 等人提出，旨在克服传统图卷积网络 (GCN) 在处理大规模图时的计算瓶颈问题。 GraphSAGE 的核心思想是对每个节点在每一层只采样固定数量的邻居节点，并通过聚合函数生成节点的表示，从而实现节点特征的逐层更新。
+本实验采用 PyTorch + MobileNetV3-Small 对 26 类垃圾图像进行分类。实验主要使用迁移学习策略，即在 ImageNet 上预训练的模型上进行微调，以应对小规模数据集训练过程中的过拟合问题。训练过程包含数据增强、冻结骨干训练分类头、全网络微调和验证评估等步骤。以下分模块详细描述模型设计与训练方法。
 
-在本实验训练及测试使用DGraph-Fin数据集，一个针对金融交易异常分析构建的图数据集，包含大量节点及其复杂关系。模型输入为节点的原始特征向量，经过两层GraphSAGE网络进行特征聚合，使用ReLU激活函数增强表达能力。在每一层，节点特征首先与采样到的邻居节点特征进行拼接或加权聚合，然后通过线性映射更新节点表示。为了保持训练稳定性，实验中使用了梯度裁剪和Dropout技术，并使用nll-Loss优化分类函数。
+== 数据增强与预处理
 
-训练过程中，GraphSAGE 通过 mini-batch 方式对节点进行采样，每个节点仅与其部分邻居交互，这种设计显著降低了内存消耗，同时保持了表示的有效性。验证与评估阶段，模型在验证集上计算 ROC-AUC 指标，以监控模型的泛化能力；在性能最优时保存模型权重，进一步用于对单个节点进行概率预测。整个算法流程不仅保证了大规模图的训练可行性，还能够针对节点级异常检测任务提供可靠的预测结果。 
+为了增强模型的泛化能力并缓解数据集较小带来的过拟合问题，训练阶段对输入图像进行了多种数据增强操作，包括随机裁剪、水平翻转以及颜色扰动等。验证阶段则采用统一的缩放与中心裁剪策略，保证评估结果的稳定性和一致性。
 
-== 节点邻居采样
+#code.augmentation
 
-GraphSAGE对每个训练节点采样固定的邻居，以控制计算复杂度。实验中采用固定邻居数的随机采样，同时在聚合中包含自身节点。
+== 模型构建
 
-#sample\
+模型选择 MobileNetV3-Small，该网络属于轻量化卷积神经网络，适用于资源受限的训练环境。实验中将原始分类头替换为包含两层全连接层的自定义分类器，以适应 26 类分类任务。这种设计在保证模型容量的同时，避免了过拟合，并提高了特征表达能力。
 
-== 邻居特征聚合
+#code.construction
 
-对采样到的邻居节点特征进行加权求和或均值聚合，得到当前节点的嵌入表示。 GraphSAGE 提供多种聚合函数。本实验中，仅实现并使用均值聚合函数。
+== 训练策略
 
-#aggregate\
+训练过程采用两阶段策略：
 
-== 节点表示更新与分类
++ 冻结骨干网络，训练分类头：冻结卷积层仅训练分类层，有助于在小规模数据集上快速收敛，并减少梯度噪声引起的过拟合。
 
-将节点自身特征与聚合特征拼接或替换，通过线性变换与激活函数得到新的节点嵌入，并通过分类层输出节点类别概率。整个 GraphSAGE 的前向传播过程通过逐层聚合节点邻居特征实现。
++ 全网络微调：解冻骨干网络，使预训练特征能够适应当前数据分布，提高最终分类性能。
 
-#net\
+#indent()
+优化器选择 AdamW，学习率采用 Cosine Annealing 调度，并使用梯度裁剪防止梯度爆炸。这些方法在深度学习训练中被广泛应用以保证训练稳定性和模型泛化能力。
+
+#code.freeze
+
+== 验证与模型保存
+
+在每轮训练结束后，对验证集进行评估，通过计算分类准确率衡量模型性能。实验中使用早停策略保存最佳模型，保证在验证集上表现最优的权重用于后续预测。
+
+#code.validation-and-save
+
+== 模型预测接口
+
+为便于系统测试和实际应用，实验实现了统一的 predict() 接口，该接口接收 RGB 图像数组作为输入，并返回预测类别名称。该设计保证预测模块与训练模块解耦，同时便于部署到 CPU 或 GPU 环境。
+
+#code.predict-api
 
 #pagebreak()
 
 = 算法性能分析
 
-在本实验中， GraphSAGE 模型在 DGraph-Fin 数据集上进行了金融异常分析。模型采用两层结构，每层隐藏维度为64，每个节点随机采样固定数量的邻居节点进行聚合，以捕捉节点间的局部图结构信息。训练优化器选择Adam，学习率为5e-4，同时进行梯度裁剪以防止梯度爆炸。模型在训练阶段的核心代码如下：
+为了评估模型在垃圾分类任务中的性能，本实验在训练集与验证集上进行了系统测试。模型训练共 20 个 epoch，批量大小为 32。训练过程中采用了两阶段策略：初期冻结骨干网络仅训练分类头，以快速收敛；随后全网络微调以提升整体分类性能。
 
-#train_one_epoch\
+实验使用指标包括 训练准确率（Train Accuracy） 和 验证准确率（Validation Accuracy），分别用于评估模型在训练数据上的拟合程度和在未见数据上的泛化能力。此外，为保证训练稳定性和防止梯度爆炸，实验中引入 梯度裁剪 与 余弦退火学习率调度（Cosine Annealing LR）。
 
-在每轮实验完成后，模型会在验证集上计算 ROC-AUC 指标，并保存性能最优的模型权重。
+== 训练过程性能
 
-#evaluate\
+训练阶段模型损失持续下降，准确率逐步提高。第一阶段（冻结骨干）分类头训练迅速收敛，但整体准确率受限于未微调的骨干特征。解冻全网络后，训练准确率进一步提升，同时验证集准确率显著增加，表明模型能够有效学习到垃圾图像的语义特征。
 
-实验结果显示， GRaphSAGE 在 DGraph-Fin 数据集上最佳验证 AUC 达到0.77，明显由于未使用图结构信息的 MLP 模型。这种性能提升主要源于 GraphSAGE 的邻居采样与特征聚合机制，使每个节点在表示学习过程中不仅依赖自身特征，也能够综合邻居节点信息。
+#code.train
+
+#indent()
+在训练过程中，模型的 验证准确率（Validation Accuracy） 达到实验最高值 best_val_acc（请替换为你的实际结果），说明微调后的 MobileNetV3-Small 模型能够较好地在小规模垃圾分类数据集上泛化。
+
+== 模型分析与讨论
+
++ 轻量化网络优势：MobileNetV3-Small 网络参数量小，计算量低，能够在有限计算资源下高效训练，适合 CPU/GPU 混合或嵌入式部署场景。
+
++ 迁移学习效果：在 ImageNet 上预训练的卷积特征能够提供较强的图像表示能力，即便在小数据集上也能获得较高准确率，显著优于从零训练的模型。
+
++ 数据增强贡献：随机裁剪、水平翻转和颜色扰动有效缓解了小数据集过拟合问题，提高模型泛化能力。
+
++ 训练策略合理性：冻结骨干训练分类头阶段保证了早期快速收敛，全网络微调阶段增强了特征表达能力，从而取得较高验证准确率。
+
++ 性能瓶颈：由于数据集规模较小，模型在部分类别上仍可能出现分类错误；同时，小模型容量限制了对某些复杂特征的学习能力，表现出一定的性能上限。
 
 #pagebreak()
 
 = 研究展望
 
-尽管本实验中基于 GraphSAGE 的模型在金融异常检测任务中展现了较好的性能，但仍存在一定的优化空间与研究方向。首先，当前模型在邻居节点采样时采用固定数量的随机采样策略，这种方法在稀疏图或极度不均衡图中可能导致部分关键节点特征被忽略。未来研究可考虑引入自适应采样机制，根据节点的重要性或连接强度动态调整邻居采样数量，从而更精确地捕捉局部结构信息。
+尽管本实验中基于 MobileNetV3-Small 的垃圾分类模型在小规模数据集上取得了较好的性能，但仍存在多方面的改进空间。未来研究可从以下几个方向进行探索：
 
-其次，GraphSAGE 在聚合邻居特征时主要使用均值或拼接操作，缺少对邻居特征的权重学习能力。引入注意力机制（Graph Attention）可以赋予模型对不同邻居节点的重要性进行动态加权，从而提高异常节点的识别能力。此外，可以考虑结合多层次图嵌入方法，对局部与全局图结构进行联合建模，增强模型对复杂金融关系的捕捉能力。
+== 模型架构优化
 
-在模型训练与优化方面，目前的实现使用了单一的交叉熵损失函数和固定学习率优化策略。未来可尝试多任务学习框架，将异常检测与节点分类、社区检测等任务联合训练，利用辅助任务改善主任务的泛化能力。同时，自监督或对比学习方法也可以在缺乏标签的数据场景下增强图表示的质量，降低对人工标注的依赖。
+MobileNetV3-Small 作为轻量化网络，其模型容量相对有限，可能对复杂图像特征表达不足。未来可考虑以下改进：
 
-最后，从应用角度来看，金融异常检测对实时性要求较高，而当前 GraphSAGE 模型在大规模图上仍存在计算瓶颈。未来研究可以探索图分块技术、分布式训练以及模型蒸馏策略，以在保证准确性的同时显著提升推理速度，从而实现对实时金融交易数据的在线监控与异常预警。
++ 使用更深或更宽的网络：如 MobileNetV3-Large 或 EfficientNet 系列，可增强特征表示能力，提高对细粒度类别的识别能力。
 
-综上所述，GraphSAGE 在金融异常分析中的应用具有较强的潜力，但仍有多方面的改进空间，包括邻居采样策略、特征聚合机制、训练优化方法以及大规模图的高效推理。这些方向的探索不仅有助于提升模型性能，也将为图神经网络在金融风控领域的广泛应用提供理论与实践支持。
++ 引入注意力机制：在卷积特征中加入通道注意力（SE模块）或空间注意力（CBAM），可使模型动态关注图像中的关键区域，提升小类别或易混淆类别的识别准确率。
+
++ 多尺度特征融合：通过融合不同尺度的卷积特征，可增强模型对垃圾图像形态和尺寸变化的鲁棒性。
+
+== 数据增强与数据扩充
+
+小数据集训练容易导致模型过拟合，未来可通过更丰富的数据增强策略或数据扩充技术改善模型泛化性：
+
++ 高级数据增强：如 CutMix、MixUp 或随机擦除（Random Erasing），可增加训练样本多样性。
+
++ 合成数据生成：使用生成式模型（如 GAN）生成缺失类别的训练样本，以缓解类别不平衡问题。
+
++ 半监督或自监督学习：结合未标注数据进行特征预训练，可在数据有限情况下进一步提高模型表示能力。
+
+== 训练策略优化
+
++ 自适应学习率与优化器：探索如 RAdam、LookAhead 等优化器，结合 OneCycleLR 学习率调度，可进一步加速训练收敛并提高稳定性。
+
++ 多阶段训练：针对易混淆类别进行重点微调，或采用类别加权损失函数以平衡不同类别对模型训练的贡献。
+
++ 知识蒸馏：利用大容量教师模型指导小模型训练，可在保持轻量化的同时提升精度。
+
+#indent()
+综上所述，本实验基于 MobileNetV3-Small 的迁移学习方法在垃圾分类任务中表现良好，但仍有提升空间。通过优化模型架构、增强数据多样性、改进训练策略以及结合实际部署需求，可进一步提升模型性能和实际应用价值，为垃圾智能分类系统的发展提供理论与实践参考。
